@@ -13,9 +13,9 @@
 <style>
   :root { color-scheme: dark }
   html, body { margin:0; height:100%; background:#000; overflow:hidden; font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif }
-  /* Pin the AR scene to the viewport (prevents “blank until rotate” on iOS) */
+  /* Pin the AR scene to viewport (prevents “camera after rotate” on iOS) */
   a-scene { position:fixed !important; inset:0 !important; z-index:0 !important; }
-  /* UI overlays sit above the scene */
+  /* Overlays above the scene */
   #ui, #start, #log { position:fixed; z-index:2; }
   #ui { inset:0; pointer-events:none }
   #topbar, #bottombar { position:absolute; left:0; right:0; display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto }
@@ -35,21 +35,22 @@
   <h1 style="color:#e2e8f0;margin:.5rem 0 .25rem">AR Army Men (MindAR)</h1>
   <p style="color:#a5b4c2;margin:.25rem 0 .75rem">Point your camera at the target image, then use the buttons to spawn squads, tanks, and heli drops.</p>
   <button id="btnStart">Start</button>
-  <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Tip: try the sample card first, then swap to your own target.</p>
+  <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Tip: use the local sample card first, then swap to your own target.</p>
 </div></div>
 
 <div id="log">…</div>
 
-<!-- Keep scene visible from the start; let overlays block until “Start” -->
+<!-- Keep scene visible; overlays block until Start -->
 <a-scene
-  mindar-image="imageTargetSrc: https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.mind; uiLoading: true; uiScanning: true;"
+  mindar-image="imageTargetSrc: card.mind; uiLoading: true; uiScanning: true;"
   color-space="sRGB"
   renderer="colorManagement: true; physicallyCorrectLights: true"
   vr-mode-ui="enabled: false"
   device-orientation-permission-ui="enabled: true"
 >
   <a-assets>
-    <img id="card" src="https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.png">
+    <!-- Use the local PNG to avoid CORS -->
+    <img id="card" src="card.png">
   </a-assets>
 
   <a-entity camera look-controls="enabled: false" position="0 0 0"></a-entity>
@@ -88,20 +89,14 @@
 const $ = (id)=>document.getElementById(id);
 const setLog=(msg)=>{ $('log').textContent = msg; };
 
-// Force a resize (fixes “camera appears only after rotate”)
-function forceResizeSoon(){
-  setTimeout(()=>{ window.dispatchEvent(new Event('resize')); }, 60);
-}
+function forceResizeSoon(){ setTimeout(()=>{ window.dispatchEvent(new Event('resize')); }, 60); }
 
-// Start: remove overlay, prime audio, and force a resize
 $('btnStart').addEventListener('click', ()=>{
   document.getElementById('start').style.display='none';
   try{ window.__ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
   setLog('Starting… allow Camera/Motion if prompted');
   forceResizeSoon();
 });
-
-// Also force resize on orientation change
 window.addEventListener('orientationchange', forceResizeSoon);
 
 // MindAR debug logs
