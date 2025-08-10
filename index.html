@@ -12,16 +12,20 @@
 
 <style>
   :root { color-scheme: dark }
-  html,body { margin:0; height:100%; overflow:hidden; background:#000; font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif }
-  #ui { position:fixed; inset:0; pointer-events:none }
-  #topbar,#bottombar { position:absolute; left:0; right:0; display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto }
+  html, body { margin:0; height:100%; background:#000; overflow:hidden; font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif }
+  /* Pin the AR scene to the viewport (prevents “blank until rotate” on iOS) */
+  a-scene { position:fixed !important; inset:0 !important; z-index:0 !important; }
+  /* UI overlays sit above the scene */
+  #ui, #start, #log { position:fixed; z-index:2; }
+  #ui { inset:0; pointer-events:none }
+  #topbar, #bottombar { position:absolute; left:0; right:0; display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto }
   #topbar { top:env(safe-area-inset-top); padding:.5rem }
   #bottombar { bottom:calc(env(safe-area-inset-bottom) + .25rem); padding:.5rem }
   button { appearance:none; border:1px solid #2a2f39; background:#11161d; color:#cbd5e1; border-radius:12px; padding:.6rem .8rem; font-weight:600 }
   #status { position:absolute; left:.5rem; bottom:calc(env(safe-area-inset-bottom) + .5rem); color:#9aa4b2; font-size:.85rem; max-width:46ch; text-shadow:0 1px 2px #000 }
-  #start { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); z-index:3 }
+  #start { inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); }
   #start>div { text-align:center; max-width:40rem; padding:1rem }
-  #log { position:fixed; left:.5rem; top:.5rem; color:#93c5fd; font:12px/1.3 monospace; background:rgba(0,0,0,.4); padding:.35rem .5rem; border-radius:6px; pointer-events:none; max-width:90vw; }
+  #log { left:.5rem; top:.5rem; color:#93c5fd; font:12px/1.3 monospace; background:rgba(0,0,0,.4); padding:.35rem .5rem; border-radius:6px; pointer-events:none; max-width:90vw; }
 </style>
 </head>
 <body>
@@ -36,38 +40,29 @@
 
 <div id="log">…</div>
 
-<!-- Scene with MindAR image tracking -->
+<!-- Keep scene visible from the start; let overlays block until “Start” -->
 <a-scene
   mindar-image="imageTargetSrc: https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.mind; uiLoading: true; uiScanning: true;"
   color-space="sRGB"
   renderer="colorManagement: true; physicallyCorrectLights: true"
   vr-mode-ui="enabled: false"
   device-orientation-permission-ui="enabled: true"
-  embedded
-  style="display:none"
 >
   <a-assets>
-    <!-- Sample target image (open on another screen or print) -->
     <img id="card" src="https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.png">
   </a-assets>
 
-  <!-- camera -->
   <a-entity camera look-controls="enabled: false" position="0 0 0"></a-entity>
 
-  <!-- Anchor appears when the image target is found -->
   <a-entity id="anchor" mindar-image-target="targetIndex: 0">
-    <!-- Faint ground plane using the card image (width=1 matches sample) -->
     <a-plane src="#card" position="0 0 0" height="0.552" width="1" rotation="-90 0 0" material="opacity:0.15"></a-plane>
 
-    <!-- Battlefield root -->
     <a-entity id="field" position="0 0 0" rotation="0 0 0" scale="1.6 1.6 1.6"></a-entity>
 
-    <!-- Center line -->
     <a-entity geometry="primitive: box; width: 0.02; height: 0.002; depth: 3.2"
               material="color: #24a3ff; opacity: 0.6"
               position="0 0 0"></a-entity>
 
-    <!-- Lights -->
     <a-entity light="type: hemisphere; intensity: 0.9; color: #ffffff; groundColor: #444444"></a-entity>
     <a-entity light="type: directional; intensity: 0.8" position="1 3 2"></a-entity>
   </a-entity>
@@ -91,30 +86,38 @@
 
 <script>
 const $ = (id)=>document.getElementById(id);
-const setLog=(msg)=>{ const el=$('log'); el.textContent = msg; };
+const setLog=(msg)=>{ $('log').textContent = msg; };
 
-// Start: show scene, prime audio
+// Force a resize (fixes “camera appears only after rotate”)
+function forceResizeSoon(){
+  setTimeout(()=>{ window.dispatchEvent(new Event('resize')); }, 60);
+}
+
+// Start: remove overlay, prime audio, and force a resize
 $('btnStart').addEventListener('click', ()=>{
-  document.querySelector('a-scene').style.display='block';
   document.getElementById('start').style.display='none';
   try{ window.__ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
   setLog('Starting… allow Camera/Motion if prompted');
+  forceResizeSoon();
 });
 
-// --- Event logging to help debug ---
+// Also force resize on orientation change
+window.addEventListener('orientationchange', forceResizeSoon);
+
+// MindAR debug logs
 window.addEventListener('load', ()=>{
   const scene = document.querySelector('a-scene');
   const anchor = document.getElementById('anchor');
 
   scene.addEventListener('loaded', ()=>setLog('scene loaded'));
-  scene.addEventListener('arReady', ()=>setLog('arReady — camera should be visible'));
+  scene.addEventListener('arReady', ()=>{ setLog('arReady — camera should be visible'); forceResizeSoon(); });
   scene.addEventListener('arError', (e)=>setLog('arError: '+(e && e.detail ? JSON.stringify(e.detail) : 'unknown')));
 
   anchor.addEventListener('targetFound', ()=>{ $('status').textContent='Target found. Spawn units!'; setLog('targetFound'); });
   anchor.addEventListener('targetLost',  ()=>{ $('status').textContent='Lost target. Re-aim at the image.'; setLog('targetLost'); });
 });
 
-// --- Simple audio (no files) ---
+// ---- GAME ----
 const AudioFX = (()=>{ let ctx;
   const ensure=()=>{ ctx = window.__ac || ctx || new (window.AudioContext||window.webkitAudioContext)(); };
   const beep=(f=440,d=.06)=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
@@ -125,20 +128,14 @@ const AudioFX = (()=>{ let ctx;
   return { ensure, beep };
 })();
 
-// --- Game state ---
 const SIDE={GREEN:0,TAN:1};
-const units=[]; // {el,type,side,hp,cd}
+const units=[];
 const cfg={ soldierSpeed:.45, tankSpeed:.25, bulletSpeed:6, fireCooldown:.9, tankCooldown:1.6, soldierHP:100, tankHP:300, dmg:{bullet:25,shell:70}, range:6, collideR:.18 };
-
 let fieldEl;
-
-// Setup after A-Frame is ready
-window.addEventListener('load', ()=>{
-  fieldEl = document.getElementById('field');
-});
-
-// Helpers
 const rnd=(a=0,b=1)=>a+Math.random()*(b-a);
+
+window.addEventListener('load', ()=>{ fieldEl = document.getElementById('field'); });
+
 function frontlineXZ(side,min=.6,max=2.0){
   const x = (side===SIDE.GREEN? rnd(min,max): -rnd(min,max));
   const z = rnd(-1.2,1.2);
@@ -190,7 +187,6 @@ function dropPara(side){
   units.push({el:para,type:'para',side,hp:cfg.soldierHP,cd:0});
 }
 
-// Buttons
 $('btnGreenSquad').onclick = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.GREEN); };
 $('btnTanSquad').onclick   = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.TAN); };
 $('btnGreenTank').onclick  = ()=>{ AudioFX.ensure(); spawnTank(SIDE.GREEN); };
@@ -199,23 +195,18 @@ $('btnDropGreen').onclick  = ()=>{ AudioFX.ensure(); dropPara(SIDE.GREEN); };
 $('btnDropTan').onclick    = ()=>{ AudioFX.ensure(); dropPara(SIDE.TAN); };
 $('btnReset').onclick      = ()=>{ if(!fieldEl) return; [...fieldEl.children].forEach(c=>c.remove()); units.length=0; };
 
-// AI loop
 AFRAME.registerComponent('army-loop',{
   tick: function(t,dtms){
     const dt=Math.min(.032, dtms/1000);
     const get = (el,k,def)=>{ const v=el.getAttribute(k); return v!=null? (typeof v==='string'? (isNaN(+v)? v : +v): v): def };
-
     for(const u of units){ u.hp = get(u.el,'data-hp', u.hp); u.cd = get(u.el,'data-cd', u.cd); }
-
     for(const u of units){
       const obj=u.el.object3D;
-      if(u.type==='heli'){
-        obj.position.x += (u.side===SIDE.GREEN? .2 : -.2) * dt;
-      } else if(u.type==='para'){
+      if(u.type==='heli'){ obj.position.x += (u.side===SIDE.GREEN? .2 : -.2) * dt; }
+      else if(u.type==='para'){
         if(obj.position.y>0.05) obj.position.y = Math.max(0, obj.position.y - .15*dt);
         else { u.type='soldier'; u.el.setAttribute('data-type','soldier'); }
       } else {
-        // ground AI
         let target=null, best=1e9;
         for(const v of units){ if(v.side!==u.side && v.type!=='para'){ const d=obj.position.distanceTo(v.el.object3D.position); if(d<best){best=d; target=v;} } }
         if(target){
