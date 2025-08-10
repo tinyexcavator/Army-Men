@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>AR Army Men — Zappar Instant World Tracking</title>
+<title>AR Army Men — MindAR (Image Target)</title>
 
-<!-- A-Frame + Zappar (CDN) -->
+<!-- A-Frame + MindAR (CDN) -->
 <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-<script src="https://libs.zappar.com/zappar-aframe/2.0.1/zappar-aframe.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
 <style>
   :root { color-scheme: dark }
@@ -20,43 +21,44 @@
   #status { position:absolute; left:.5rem; bottom:calc(env(safe-area-inset-bottom) + .5rem); color:#9aa4b2; font-size:.85rem; max-width:46ch; text-shadow:0 1px 2px #000 }
   #start { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); z-index:3 }
   #start>div { text-align:center; max-width:40rem; padding:1rem }
-  .hb { position:absolute; width:56px; height:7px; border:1px solid rgba(255,255,255,.35); background:rgba(0,0,0,.35); border-radius:4px; overflow:hidden; transform:translate(-50%, -100%); pointer-events:none }
-  .hb .f { height:100%; background:linear-gradient(90deg,#22c55e,#84cc16); width:100% }
-  .hb.tan .f { background:linear-gradient(90deg,#fbbf24,#f59e0b) }
 </style>
 </head>
 <body>
 
 <!-- Start overlay -->
 <div id="start"><div>
-  <h1 style="color:#e2e8f0;margin:.5rem 0 .25rem">AR Army Men (Zappar)</h1>
-  <p style="color:#a5b4c2;margin:.25rem 0 .75rem">Move to detect a good spot, then tap <b>Place Battlefield</b>. Use the buttons to spawn squads, tanks, and helicopter drops.</p>
+  <h1 style="color:#e2e8f0;margin:.5rem 0 .25rem">AR Army Men (MindAR)</h1>
+  <p style="color:#a5b4c2;margin:.25rem 0 .75rem">Point your camera at the target image, then use the buttons to spawn squads, tanks, and heli drops.</p>
   <button id="btnStart">Start</button>
-  <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Must be HTTPS (GitHub Pages). Allow camera & motion permissions.</p>
+  <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Tip: try the sample card first, then swap to your own target.</p>
 </div></div>
 
-<!-- A-Frame Scene with Zappar Instant World Tracking -->
+<!-- Scene with MindAR image tracking -->
 <a-scene
+  mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind;"
+  color-space="sRGB"
   renderer="colorManagement: true; physicallyCorrectLights: true"
   vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false"
+  device-orientation-permission-ui="enabled: true"
   embedded
   style="display:none"
 >
-  <!-- Permission & compatibility UIs from Zappar -->
-  <a-entity zappar-permissions-ui></a-entity>
-  <a-entity zappar-compatibility-ui></a-entity>
+  <a-assets>
+    <!-- Sample target image (so you can show it on a 2nd screen or print it) -->
+    <img id="card" src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png">
+  </a-assets>
 
-  <!-- Zappar camera -->
-  <!-- Optional: add license-key: YOUR_KEY_HERE if you have one -->
-  <a-entity id="camera" camera zappar-camera></a-entity>
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-  <!-- Instant world anchor; starts in placement mode -->
-  <a-entity id="anchor" zappar-instant="placement-mode: true; placement-smoothing: 0.25;">
+  <!-- Appears when the target is found -->
+  <a-entity id="anchor" mindar-image-target="targetIndex: 0">
+    <!-- Show the target as a faint ground plane (width=1 matches MindAR sample size) -->
+    <a-plane src="#card" position="0 0 0" height="0.552" width="1" rotation="-90 0 0" material="opacity:0.15"></a-plane>
+
     <!-- Battlefield root -->
     <a-entity id="field" position="0 0 0" rotation="0 0 0" scale="1.6 1.6 1.6"></a-entity>
 
-    <!-- Visual gizmo to show the center line -->
+    <!-- Center line -->
     <a-entity geometry="primitive: box; width: 0.02; height: 0.002; depth: 3.2"
               material="color: #24a3ff; opacity: 0.6"
               position="0 0 0"></a-entity>
@@ -70,7 +72,6 @@
 <!-- UI -->
 <div id="ui">
   <div id="topbar">
-    <button id="btnPlace">Place Battlefield</button>
     <button id="btnGreenSquad">+ Green Squad</button>
     <button id="btnTanSquad">+ Tan Squad</button>
     <button id="btnGreenTank">+ Green Tank</button>
@@ -81,21 +82,19 @@
   <div id="bottombar">
     <button id="btnReset">Reset</button>
   </div>
-  <div id="status">Move your phone to find a spot…</div>
+  <div id="status">Point at the target image…</div>
 </div>
 
 <script>
-// ===== helpers =====
 const $ = (id)=>document.getElementById(id);
-const rnd = (a=0,b=1)=>a+Math.random()*(b-a);
 
-// ===== Start flow =====
+// Start: show scene & let MindAR request permissions
 $('btnStart').addEventListener('click', ()=>{
   document.querySelector('a-scene').style.display='block';
   document.getElementById('start').style.display='none';
 });
 
-// ===== Audio (simple synth, no files) =====
+// --- Simple audio (no files) ---
 const AudioFX = (()=>{ let ctx;
   const ensure=()=>{ ctx||(ctx=new (window.AudioContext||window.webkitAudioContext)()); };
   const beep=(f=440,d=.06)=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
@@ -111,31 +110,29 @@ const AudioFX = (()=>{ let ctx;
   return { ensure, beep, boom };
 })();
 
-// ===== Game state =====
+// --- Game state ---
 const SIDE={GREEN:0,TAN:1};
 const units=[]; // {el,type,side,hp,cd}
 const cfg={ soldierSpeed:.45, tankSpeed:.25, bulletSpeed:6, fireCooldown:.9, tankCooldown:1.6, soldierHP:100, tankHP:300, dmg:{bullet:25,shell:70}, range:6, collideR:.18 };
 
-let fieldEl = null;
+let fieldEl, anchorEl;
+
+// Setup after A-Frame is ready
 window.addEventListener('load', ()=>{
   fieldEl = document.getElementById('field');
+  anchorEl = document.getElementById('anchor');
+
+  anchorEl.addEventListener('targetFound', ()=>{ $('status').textContent='Target found. Spawn units!'; });
+  anchorEl.addEventListener('targetLost',  ()=>{ $('status').textContent='Lost target. Re-aim at the image.'; });
 });
 
-// ===== Placement control =====
-$('btnPlace').addEventListener('click', ()=>{
-  // Turn off placement-mode so the anchor is locked in space
-  const anchor = document.getElementById('anchor');
-  anchor.setAttribute('zappar-instant', 'placement-mode', 'false');
-  $('status').textContent = 'Battlefield placed. Spawn units!';
-});
-
-// ===== Spawning & AI =====
+// Spawning helpers
+const rnd=(a=0,b=1)=>a+Math.random()*(b-a);
 function frontlineXZ(side,min=.6,max=2.0){
   const x = (side===SIDE.GREEN? rnd(min,max): -rnd(min,max));
   const z = rnd(-1.2,1.2);
   return new THREE.Vector3(x,0,z);
 }
-
 function box(w,h,d,color){
   const el=document.createElement('a-entity');
   el.setAttribute('geometry',`primitive: box; width:${w}; height:${h}; depth:${d}`);
@@ -143,40 +140,32 @@ function box(w,h,d,color){
   fieldEl.appendChild(el);
   return el;
 }
-
 function spawnSoldier(side){
   const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
   const el = box(.06,.12,.06,col);
   const p = frontlineXZ(side); el.object3D.position.copy(p);
-  el.setAttribute('data-type','soldier');
-  el.setAttribute('data-side',side);
-  el.setAttribute('data-hp', cfg.soldierHP);
-  el.setAttribute('data-cd', Math.random()*0.3);
+  el.setAttribute('data-type','soldier'); el.setAttribute('data-side',side);
+  el.setAttribute('data-hp', cfg.soldierHP); el.setAttribute('data-cd', Math.random()*0.3);
   units.push({el,type:'soldier',side,hp:cfg.soldierHP,cd:Math.random()*0.3});
 }
-
 function spawnTank(side){
   const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
   const base = box(.18,.09,.28,col);
   const p = frontlineXZ(side,.8,2.2); base.object3D.position.copy(p);
   const gun = box(.04,.04,.16,'#222'); gun.object3D.position.set(0,.06,.12); base.appendChild(gun);
-  base.setAttribute('data-type','tank');
-  base.setAttribute('data-side',side);
-  base.setAttribute('data-hp', cfg.tankHP);
-  base.setAttribute('data-cd', Math.random()*0.6);
+  base.setAttribute('data-type','tank'); base.setAttribute('data-side',side);
+  base.setAttribute('data-hp', cfg.tankHP); base.setAttribute('data-cd', Math.random()*0.6);
   units.push({el:base,type:'tank',side,hp:cfg.tankHP,cd:Math.random()*0.6});
 }
-
 function spawnHeli(side){
   const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
   const heli = box(.12,.06,.28,col);
   const xz = frontlineXZ(side,1.5,2.8); heli.object3D.position.copy(xz); heli.object3D.position.y = 2.2;
   const rotor = box(.28,.01,.01,'#eee'); heli.appendChild(rotor);
   heli.setAttribute('data-type','heli'); heli.setAttribute('data-side',side); heli.setAttribute('data-hp',120);
-  units.push({el:heli,type:'heli',side,hp:120,cd:1.5});
+  units.push({el:heli,type:'heli',side:h=120,cd:1.5});
   return heli;
 }
-
 function dropPara(side){
   let heli = units.find(u=>u.type==='heli' && u.side===side);
   if(!heli) heli = { el: spawnHeli(side) };
@@ -199,13 +188,12 @@ $('btnDropGreen').onclick  = ()=>{ AudioFX.ensure(); dropPara(SIDE.GREEN); };
 $('btnDropTan').onclick    = ()=>{ AudioFX.ensure(); dropPara(SIDE.TAN); };
 $('btnReset').onclick      = ()=>{ if(!fieldEl) return; [...fieldEl.children].forEach(c=>c.remove()); units.length=0; };
 
-// AI / movement / shooting
+// AI loop
 AFRAME.registerComponent('army-loop',{
   tick: function(t,dtms){
     const dt=Math.min(.032, dtms/1000);
     const get = (el,k,def)=>{ const v=el.getAttribute(k); return v!=null? (typeof v==='string'? (isNaN(+v)? v : +v): v): def };
 
-    // sync DOM attrs
     for(const u of units){ u.hp = get(u.el,'data-hp', u.hp); u.cd = get(u.el,'data-cd', u.cd); }
 
     for(const u of units){
