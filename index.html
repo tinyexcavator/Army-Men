@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>AR Army Men — MindAR (Image Target)</title>
 
-<!-- A-Frame + MindAR (CDN) -->
+<!-- A-Frame + MindAR (CDN via unpkg) -->
 <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+<script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
 <style>
   :root { color-scheme: dark }
@@ -21,6 +21,7 @@
   #status { position:absolute; left:.5rem; bottom:calc(env(safe-area-inset-bottom) + .5rem); color:#9aa4b2; font-size:.85rem; max-width:46ch; text-shadow:0 1px 2px #000 }
   #start { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); z-index:3 }
   #start>div { text-align:center; max-width:40rem; padding:1rem }
+  #log { position:fixed; left:.5rem; top:.5rem; color:#93c5fd; font:12px/1.3 monospace; background:rgba(0,0,0,.4); padding:.35rem .5rem; border-radius:6px; pointer-events:none; max-width:90vw; }
 </style>
 </head>
 <body>
@@ -33,9 +34,11 @@
   <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Tip: try the sample card first, then swap to your own target.</p>
 </div></div>
 
+<div id="log">…</div>
+
 <!-- Scene with MindAR image tracking -->
 <a-scene
-  mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind;"
+  mindar-image="imageTargetSrc: https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.mind; uiLoading: true; uiScanning: true;"
   color-space="sRGB"
   renderer="colorManagement: true; physicallyCorrectLights: true"
   vr-mode-ui="enabled: false"
@@ -44,15 +47,16 @@
   style="display:none"
 >
   <a-assets>
-    <!-- Sample target image (so you can show it on a 2nd screen or print it) -->
-    <img id="card" src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png">
+    <!-- Sample target image (open on another screen or print) -->
+    <img id="card" src="https://unpkg.com/mind-ar@1.2.5/examples/image-tracking/assets/card-example/card.png">
   </a-assets>
 
-  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+  <!-- camera -->
+  <a-entity camera look-controls="enabled: false" position="0 0 0"></a-entity>
 
-  <!-- Appears when the target is found -->
+  <!-- Anchor appears when the image target is found -->
   <a-entity id="anchor" mindar-image-target="targetIndex: 0">
-    <!-- Show the target as a faint ground plane (width=1 matches MindAR sample size) -->
+    <!-- Faint ground plane using the card image (width=1 matches sample) -->
     <a-plane src="#card" position="0 0 0" height="0.552" width="1" rotation="-90 0 0" material="opacity:0.15"></a-plane>
 
     <!-- Battlefield root -->
@@ -87,27 +91,38 @@
 
 <script>
 const $ = (id)=>document.getElementById(id);
+const setLog=(msg)=>{ const el=$('log'); el.textContent = msg; };
 
-// Start: show scene & let MindAR request permissions
+// Start: show scene, prime audio
 $('btnStart').addEventListener('click', ()=>{
   document.querySelector('a-scene').style.display='block';
   document.getElementById('start').style.display='none';
+  try{ window.__ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
+  setLog('Starting… allow Camera/Motion if prompted');
+});
+
+// --- Event logging to help debug ---
+window.addEventListener('load', ()=>{
+  const scene = document.querySelector('a-scene');
+  const anchor = document.getElementById('anchor');
+
+  scene.addEventListener('loaded', ()=>setLog('scene loaded'));
+  scene.addEventListener('arReady', ()=>setLog('arReady — camera should be visible'));
+  scene.addEventListener('arError', (e)=>setLog('arError: '+(e && e.detail ? JSON.stringify(e.detail) : 'unknown')));
+
+  anchor.addEventListener('targetFound', ()=>{ $('status').textContent='Target found. Spawn units!'; setLog('targetFound'); });
+  anchor.addEventListener('targetLost',  ()=>{ $('status').textContent='Lost target. Re-aim at the image.'; setLog('targetLost'); });
 });
 
 // --- Simple audio (no files) ---
 const AudioFX = (()=>{ let ctx;
-  const ensure=()=>{ ctx||(ctx=new (window.AudioContext||window.webkitAudioContext)()); };
+  const ensure=()=>{ ctx = window.__ac || ctx || new (window.AudioContext||window.webkitAudioContext)(); };
   const beep=(f=440,d=.06)=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
     o.type='square'; o.frequency.value=f; g.gain.value=.0001;
     g.gain.exponentialRampToValueAtTime(.12,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+d);
     o.connect(g).connect(ctx.destination); o.start(t); o.stop(t+d);
   };
-  const boom=()=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
-    o.type='sawtooth'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(60,t+.35);
-    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.2,t+.02); g.gain.exponentialRampToValueAtTime(.0001,t+.5);
-    o.connect(g).connect(ctx.destination); o.start(t); o.stop(t+.6);
-  };
-  return { ensure, beep, boom };
+  return { ensure, beep };
 })();
 
 // --- Game state ---
@@ -115,18 +130,14 @@ const SIDE={GREEN:0,TAN:1};
 const units=[]; // {el,type,side,hp,cd}
 const cfg={ soldierSpeed:.45, tankSpeed:.25, bulletSpeed:6, fireCooldown:.9, tankCooldown:1.6, soldierHP:100, tankHP:300, dmg:{bullet:25,shell:70}, range:6, collideR:.18 };
 
-let fieldEl, anchorEl;
+let fieldEl;
 
 // Setup after A-Frame is ready
 window.addEventListener('load', ()=>{
   fieldEl = document.getElementById('field');
-  anchorEl = document.getElementById('anchor');
-
-  anchorEl.addEventListener('targetFound', ()=>{ $('status').textContent='Target found. Spawn units!'; });
-  anchorEl.addEventListener('targetLost',  ()=>{ $('status').textContent='Lost target. Re-aim at the image.'; });
 });
 
-// Spawning helpers
+// Helpers
 const rnd=(a=0,b=1)=>a+Math.random()*(b-a);
 function frontlineXZ(side,min=.6,max=2.0){
   const x = (side===SIDE.GREEN? rnd(min,max): -rnd(min,max));
@@ -163,7 +174,7 @@ function spawnHeli(side){
   const xz = frontlineXZ(side,1.5,2.8); heli.object3D.position.copy(xz); heli.object3D.position.y = 2.2;
   const rotor = box(.28,.01,.01,'#eee'); heli.appendChild(rotor);
   heli.setAttribute('data-type','heli'); heli.setAttribute('data-side',side); heli.setAttribute('data-hp',120);
-  units.push({el:heli,type:'heli',side:h=120,cd:1.5});
+  units.push({el:heli,type:'heli',side,hp:120,cd:1.5});
   return heli;
 }
 function dropPara(side){
