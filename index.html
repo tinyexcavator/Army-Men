@@ -1,77 +1,35 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>AR Army Men — MindAR (Image Target)</title>
-
-<!-- A-Frame + MindAR (CDN via unpkg) -->
-<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-<script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
-<script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AR-ish Army Men — Single File, No Libraries</title>
 <style>
   :root { color-scheme: dark }
-  html, body { margin:0; height:100%; background:#000; overflow:hidden; font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif }
-  /* Pin the AR scene to viewport (prevents “camera after rotate” on iOS) */
-  a-scene { position:fixed !important; inset:0 !important; z-index:0 !important; }
-  /* Overlays above the scene */
-  #ui, #start, #log { position:fixed; z-index:2; }
-  #ui { inset:0; pointer-events:none }
+  html, body { margin:0; height:100%; overflow:hidden; background:#000; font-family:-apple-system, system-ui, Segoe UI, Roboto, sans-serif }
+  /* Camera video fills the screen */
+  #cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; background:#000; }
+  /* Game canvas sits above camera */
+  #game { position:fixed; inset:0; z-index:1; touch-action:none; }
+  /* UI */
+  #ui { position:fixed; inset:0; pointer-events:none; z-index:2 }
   #topbar, #bottombar { position:absolute; left:0; right:0; display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto }
   #topbar { top:env(safe-area-inset-top); padding:.5rem }
   #bottombar { bottom:calc(env(safe-area-inset-bottom) + .25rem); padding:.5rem }
   button { appearance:none; border:1px solid #2a2f39; background:#11161d; color:#cbd5e1; border-radius:12px; padding:.6rem .8rem; font-weight:600 }
-  #status { position:absolute; left:.5rem; bottom:calc(env(safe-area-inset-bottom) + .5rem); color:#9aa4b2; font-size:.85rem; max-width:46ch; text-shadow:0 1px 2px #000 }
-  #start { inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); }
-  #start>div { text-align:center; max-width:40rem; padding:1rem }
-  #log { left:.5rem; top:.5rem; color:#93c5fd; font:12px/1.3 monospace; background:rgba(0,0,0,.4); padding:.35rem .5rem; border-radius:6px; pointer-events:none; max-width:90vw; }
+  #status { position:absolute; left:.6rem; bottom:calc(env(safe-area-inset-bottom) + .6rem); color:#9aa4b2; font-size:.9rem; text-shadow:0 1px 2px #000; pointer-events:none }
+  #start { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.92), rgba(0,0,0,.96)); z-index:3 }
+  #start > div { text-align:center; max-width:40rem; padding:1rem; color:#cbd5e1 }
+  #reticle { position:fixed; width:30px; height:30px; border:2px solid #22d3ee; border-radius:50%; transform:translate(-50%,-50%); z-index:2; display:none; pointer-events:none }
 </style>
 </head>
 <body>
+<video id="cam" playsinline autoplay muted></video>
+<canvas id="game"></canvas>
 
-<!-- Start overlay -->
-<div id="start"><div>
-  <h1 style="color:#e2e8f0;margin:.5rem 0 .25rem">AR Army Men (MindAR)</h1>
-  <p style="color:#a5b4c2;margin:.25rem 0 .75rem">Point your camera at the target image, then use the buttons to spawn squads, tanks, and heli drops.</p>
-  <button id="btnStart">Start</button>
-  <p style="color:#94a3b8;font-size:.85rem;margin-top:.5rem">Tip: use the local sample card first, then swap to your own target.</p>
-</div></div>
-
-<div id="log">…</div>
-
-<!-- Keep scene visible; overlays block until Start -->
-<a-scene
-  mindar-image="imageTargetSrc: card.mind; uiLoading: true; uiScanning: true;"
-  color-space="sRGB"
-  renderer="colorManagement: true; physicallyCorrectLights: true"
-  vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: true"
->
-  <a-assets>
-    <!-- Use the local PNG to avoid CORS -->
-    <img id="card" src="card.png">
-  </a-assets>
-
-  <a-entity camera look-controls="enabled: false" position="0 0 0"></a-entity>
-
-  <a-entity id="anchor" mindar-image-target="targetIndex: 0">
-    <a-plane src="#card" position="0 0 0" height="0.552" width="1" rotation="-90 0 0" material="opacity:0.15"></a-plane>
-
-    <a-entity id="field" position="0 0 0" rotation="0 0 0" scale="1.6 1.6 1.6"></a-entity>
-
-    <a-entity geometry="primitive: box; width: 0.02; height: 0.002; depth: 3.2"
-              material="color: #24a3ff; opacity: 0.6"
-              position="0 0 0"></a-entity>
-
-    <a-entity light="type: hemisphere; intensity: 0.9; color: #ffffff; groundColor: #444444"></a-entity>
-    <a-entity light="type: directional; intensity: 0.8" position="1 3 2"></a-entity>
-  </a-entity>
-</a-scene>
-
-<!-- UI -->
 <div id="ui">
   <div id="topbar">
+    <button id="btnPlace">Place Battlefield</button>
     <button id="btnGreenSquad">+ Green Squad</button>
     <button id="btnTanSquad">+ Tan Squad</button>
     <button id="btnGreenTank">+ Green Tank</button>
@@ -82,152 +40,312 @@
   <div id="bottombar">
     <button id="btnReset">Reset</button>
   </div>
-  <div id="status">Point at the target image…</div>
+  <div id="status">Tap the screen to choose a spot, then tap “Place Battlefield”.</div>
 </div>
 
+<div id="reticle"></div>
+
+<!-- Start gate (for camera/motion permissions) -->
+<div id="start"><div>
+  <h1 style="margin:.25rem 0 .5rem; color:#e2e8f0">AR-ish Army Men</h1>
+  <p style="margin:0 0 .75rem; color:#94a3b8">No libraries, single file. Uses camera + gyroscope. It’s AR-ish (no real plane detection).</p>
+  <button id="btnStart">Start</button>
+  <p style="margin-top:.75rem; color:#94a3b8; font-size:.9rem">Open over HTTPS (GitHub Pages), then allow Camera & Motion.</p>
+</div></div>
+
 <script>
-const $ = (id)=>document.getElementById(id);
-const setLog=(msg)=>{ $('log').textContent = msg; };
+/* ========= Camera ========= */
+const video = document.getElementById('cam');
+async function startCamera(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' }, audio:false });
+    video.srcObject = stream;
+  } catch(e) {
+    document.getElementById('status').textContent = 'Camera error: ' + e.message;
+  }
+}
 
-function forceResizeSoon(){ setTimeout(()=>{ window.dispatchEvent(new Event('resize')); }, 60); }
-
-$('btnStart').addEventListener('click', ()=>{
-  document.getElementById('start').style.display='none';
-  try{ window.__ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
-  setLog('Starting… allow Camera/Motion if prompted');
-  forceResizeSoon();
-});
-window.addEventListener('orientationchange', forceResizeSoon);
-
-// MindAR debug logs
-window.addEventListener('load', ()=>{
-  const scene = document.querySelector('a-scene');
-  const anchor = document.getElementById('anchor');
-
-  scene.addEventListener('loaded', ()=>setLog('scene loaded'));
-  scene.addEventListener('arReady', ()=>{ setLog('arReady — camera should be visible'); forceResizeSoon(); });
-  scene.addEventListener('arError', (e)=>setLog('arError: '+(e && e.detail ? JSON.stringify(e.detail) : 'unknown')));
-
-  anchor.addEventListener('targetFound', ()=>{ $('status').textContent='Target found. Spawn units!'; setLog('targetFound'); });
-  anchor.addEventListener('targetLost',  ()=>{ $('status').textContent='Lost target. Re-aim at the image.'; setLog('targetLost'); });
-});
-
-// ---- GAME ----
+/* ========= Audio (tiny beeps) ========= */
 const AudioFX = (()=>{ let ctx;
-  const ensure=()=>{ ctx = window.__ac || ctx || new (window.AudioContext||window.webkitAudioContext)(); };
-  const beep=(f=440,d=.06)=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+  const ensure = ()=>{ ctx||(ctx=new (window.AudioContext||window.webkitAudioContext)()); };
+  const beep = (f=440,d=.06)=>{ if(!ctx) return; const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
     o.type='square'; o.frequency.value=f; g.gain.value=.0001;
-    g.gain.exponentialRampToValueAtTime(.12,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+d);
+    g.gain.exponentialRampToValueAtTime(.14,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+d);
     o.connect(g).connect(ctx.destination); o.start(t); o.stop(t+d);
   };
   return { ensure, beep };
 })();
 
-const SIDE={GREEN:0,TAN:1};
-const units=[];
-const cfg={ soldierSpeed:.45, tankSpeed:.25, bulletSpeed:6, fireCooldown:.9, tankCooldown:1.6, soldierHP:100, tankHP:300, dmg:{bullet:25,shell:70}, range:6, collideR:.18 };
-let fieldEl;
-const rnd=(a=0,b=1)=>a+Math.random()*(b-a);
+/* ========= Canvas & helpers ========= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+function resize(){ canvas.width = innerWidth*devicePixelRatio; canvas.height = innerHeight*devicePixelRatio; canvas.style.width='100%'; canvas.style.height='100%'; }
+addEventListener('resize', resize);
 
-window.addEventListener('load', ()=>{ fieldEl = document.getElementById('field'); });
+/* ========= “Board” pose (fake AR) =========
+   We model the battlefield as a 3D-ish plane anchored at screen point A (ax, ay).
+   We use device orientation to tilt/rotate it for a believable effect.
+   Coordinates on the board are simple ground (x,z). y is height for heli/para.
+*/
+let placed=false;
+let anchor = { ax: innerWidth/2, ay: innerHeight*0.66 }; // screen anchor in CSS pixels
+let yaw=0, pitch=0, roll=0; // radians
+// ask for motion permission on iOS
+async function askMotion(){
+  const D = window.DeviceOrientationEvent;
+  if(D && D.requestPermission){ try{ const r=await D.requestPermission(); }catch(e){} }
+}
+addEventListener('deviceorientation', (e)=>{
+  // gamma ~ left/right (roll), beta ~ front/back (pitch), alpha ~ compass (yaw)
+  roll  = (e.gamma||0) * Math.PI/180 * 0.6;
+  pitch = (e.beta ||0) * Math.PI/180 * 0.6;
+  yaw   = (e.alpha||0) * Math.PI/180;
+});
+
+/* ========= Input: select anchor with a tap ========= */
+const reticle = document.getElementById('reticle');
+let pendingAnchor = {x: anchor.ax, y: anchor.ay};
+function screenToCSS(x,y){ return [x/devicePixelRatio, y/devicePixelRatio]; }
+function showReticle(x,y){ const [cx,cy]=screenToCSS(x,y); reticle.style.left=cx+'px'; reticle.style.top=cy+'px'; reticle.style.display='block'; }
+function hideReticle(){ reticle.style.display='none'; }
+canvas.addEventListener('pointerdown',(ev)=>{
+  const rect = canvas.getBoundingClientRect();
+  pendingAnchor.x = (ev.clientX - rect.left) * devicePixelRatio;
+  pendingAnchor.y = (ev.clientY - rect.top)  * devicePixelRatio;
+  showReticle(pendingAnchor.x, pendingAnchor.y);
+  document.getElementById('status').textContent = 'Now tap “Place Battlefield” to lock it.';
+});
+
+/* ========= Simple projection for the fake board =========
+   We build two basis vectors U (right) and V (forward) on screen from tilt.
+   - U is horizontal, scaled, skewed by roll.
+   - V points “away” (upwards on screen), length shrinks with pitch to mimic perspective.
+*/
+const board = {
+  // board dimensions in meters-ish (arbitrary units)
+  width: 4.0, depth: 3.2,
+  scale: 120 * window.devicePixelRatio, // px per “meter”
+};
+function computeBasis(){
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  // yaw rotates board around anchor (like heading)
+  // base right/forward directions in screen space
+  let Ux =  c,  Uz =  s;
+  let Vx = -s,  Vz =  c;
+
+  // apply roll/pitch as skew/scales
+  const rollSkew = Math.tan(roll)*0.35;
+  const pitchScale = 1 - Math.min(0.85, Math.abs(pitch)*0.9);
+
+  // convert to pixels
+  Ux = (Ux + rollSkew) * board.scale;
+  Uz = (Uz) * board.scale * 0.0; // ground has no vertical move from U (stay lateral)
+  Vx = (Vx) * board.scale * 0.25; // slight sideways shift when walking forward
+  Vz = (-1) * board.scale * pitchScale; // forward recedes upwards
+
+  return {Ux,Uz,Vx,Vz};
+}
+// project ground point (x,z) to screen px
+function project(x,z){
+  const {Ux,Uz,Vx,Vz} = computeBasis();
+  const sx = anchor.ax + x*Ux + z*Vx;
+  const sy = anchor.ay + x*Uz + z*Vz;
+  return [sx,sy];
+}
+
+/* ========= Game state ========= */
+const SIDE = { GREEN:0, TAN:1 };
+const units = []; // {type:'soldier'|'tank'|'heli'|'para', side, x,z,y, hp, cd}
+const cfg = {
+  soldierSpeed:.45, tankSpeed:.25,
+  fireCooldown:.9, tankCooldown:1.6,
+  soldierHP:100, tankHP:300, heliHP:120,
+  dmg:{ bullet:25, shell:70 },
+  range:6, collideR:.18
+};
 
 function frontlineXZ(side,min=.6,max=2.0){
-  const x = (side===SIDE.GREEN? rnd(min,max): -rnd(min,max));
-  const z = rnd(-1.2,1.2);
-  return new THREE.Vector3(x,0,z);
+  const x = (side===SIDE.GREEN ? (min+Math.random()*(max-min)) : -(min+Math.random()*(max-min)));
+  const z = -1.2 + Math.random()*2.4;
+  return {x,z};
 }
-function box(w,h,d,color){
-  const el=document.createElement('a-entity');
-  el.setAttribute('geometry',`primitive: box; width:${w}; height:${h}; depth:${d}`);
-  el.setAttribute('material',`color:${color}; metalness:.1; roughness:.9`);
-  fieldEl.appendChild(el);
-  return el;
-}
+
+/* ========= Spawners ========= */
 function spawnSoldier(side){
-  const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
-  const el = box(.06,.12,.06,col);
-  const p = frontlineXZ(side); el.object3D.position.copy(p);
-  el.setAttribute('data-type','soldier'); el.setAttribute('data-side',side);
-  el.setAttribute('data-hp', cfg.soldierHP); el.setAttribute('data-cd', Math.random()*0.3);
-  units.push({el,type:'soldier',side,hp:cfg.soldierHP,cd:Math.random()*0.3});
+  const p = frontlineXZ(side);
+  units.push({type:'soldier', side, x:p.x, z:p.z, y:0, hp:cfg.soldierHP, cd:Math.random()*0.3});
 }
 function spawnTank(side){
-  const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
-  const base = box(.18,.09,.28,col);
-  const p = frontlineXZ(side,.8,2.2); base.object3D.position.copy(p);
-  const gun = box(.04,.04,.16,'#222'); gun.object3D.position.set(0,.06,.12); base.appendChild(gun);
-  base.setAttribute('data-type','tank'); base.setAttribute('data-side',side);
-  base.setAttribute('data-hp', cfg.tankHP); base.setAttribute('data-cd', Math.random()*0.6);
-  units.push({el:base,type:'tank',side,hp:cfg.tankHP,cd:Math.random()*0.6});
+  const p = frontlineXZ(side,.8,2.2);
+  units.push({type:'tank', side, x:p.x, z:p.z, y:0, hp:cfg.tankHP, cd:Math.random()*0.6});
 }
 function spawnHeli(side){
-  const col = (side===SIDE.GREEN? '#34d399' : '#dcc18f');
-  const heli = box(.12,.06,.28,col);
-  const xz = frontlineXZ(side,1.5,2.8); heli.object3D.position.copy(xz); heli.object3D.position.y = 2.2;
-  const rotor = box(.28,.01,.01,'#eee'); heli.appendChild(rotor);
-  heli.setAttribute('data-type','heli'); heli.setAttribute('data-side',side); heli.setAttribute('data-hp',120);
-  units.push({el:heli,type:'heli',side,hp:120,cd:1.5});
-  return heli;
+  const p = frontlineXZ(side,1.5,2.8);
+  units.push({type:'heli', side, x:p.x, z:p.z, y:2.2, hp:cfg.heliHP, cd:1.5});
 }
 function dropPara(side){
   let heli = units.find(u=>u.type==='heli' && u.side===side);
-  if(!heli) heli = { el: spawnHeli(side) };
-  const p = heli.el.object3D.position.clone()
-    .add(new THREE.Vector3(rnd(-.2,.2), -.05, rnd(-.2,.2)));
-  const para = box(.06,.12,.06, side===SIDE.GREEN? '#34d399' : '#dcc18f');
-  para.object3D.position.copy(p);
-  const chute = box(.16,.02,.16,'#e6eef9'); chute.object3D.position.set(0,.18,0); para.appendChild(chute);
-  para.setAttribute('data-type','para'); para.setAttribute('data-side',side); para.setAttribute('data-hp', cfg.soldierHP);
-  fieldEl.appendChild(para);
-  units.push({el:para,type:'para',side,hp:cfg.soldierHP,cd:0});
+  if(!heli){ spawnHeli(side); heli = units.find(u=>u.type==='heli' && u.side===side); }
+  // soldier spawns under heli with chute and slowly descends
+  const jitter = ()=> -0.2 + Math.random()*0.4;
+  units.push({type:'para', side, x:heli.x+jitter(), z:heli.z+jitter(), y:heli.y-0.05, hp:cfg.soldierHP, cd:0});
 }
 
-$('btnGreenSquad').onclick = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.GREEN); };
-$('btnTanSquad').onclick   = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.TAN); };
-$('btnGreenTank').onclick  = ()=>{ AudioFX.ensure(); spawnTank(SIDE.GREEN); };
-$('btnTanTank').onclick    = ()=>{ AudioFX.ensure(); spawnTank(SIDE.TAN); };
-$('btnDropGreen').onclick  = ()=>{ AudioFX.ensure(); dropPara(SIDE.GREEN); };
-$('btnDropTan').onclick    = ()=>{ AudioFX.ensure(); dropPara(SIDE.TAN); };
-$('btnReset').onclick      = ()=>{ if(!fieldEl) return; [...fieldEl.children].forEach(c=>c.remove()); units.length=0; };
-
-AFRAME.registerComponent('army-loop',{
-  tick: function(t,dtms){
-    const dt=Math.min(.032, dtms/1000);
-    const get = (el,k,def)=>{ const v=el.getAttribute(k); return v!=null? (typeof v==='string'? (isNaN(+v)? v : +v): v): def };
-    for(const u of units){ u.hp = get(u.el,'data-hp', u.hp); u.cd = get(u.el,'data-cd', u.cd); }
-    for(const u of units){
-      const obj=u.el.object3D;
-      if(u.type==='heli'){ obj.position.x += (u.side===SIDE.GREEN? .2 : -.2) * dt; }
-      else if(u.type==='para'){
-        if(obj.position.y>0.05) obj.position.y = Math.max(0, obj.position.y - .15*dt);
-        else { u.type='soldier'; u.el.setAttribute('data-type','soldier'); }
-      } else {
-        let target=null, best=1e9;
-        for(const v of units){ if(v.side!==u.side && v.type!=='para'){ const d=obj.position.distanceTo(v.el.object3D.position); if(d<best){best=d; target=v;} } }
-        if(target){
-          if(best>cfg.collideR*2){
-            const dir=target.el.object3D.position.clone().sub(obj.position).normalize();
-            const spd=u.type==='tank'?cfg.tankSpeed:cfg.soldierSpeed;
-            obj.position.addScaledVector(dir, spd*dt);
-          }
-          u.cd -= dt; if(u.cd<=0 && best<cfg.range){
-            u.cd = (u.type==='tank'? cfg.tankCooldown: cfg.fireCooldown);
-            shoot(u, target);
-          }
+/* ========= Update / AI ========= */
+function update(dt){
+  // convert parachuters to soldiers on touchdown
+  for(const u of units){
+    if(u.type==='heli'){
+      u.x += (u.side===SIDE.GREEN? 0.2 : -0.2) * dt;
+    } else if(u.type==='para'){
+      if(u.y > 0.05) u.y = Math.max(0, u.y - 0.15*dt);
+      else { u.y=0; u.type='soldier'; }
+    } else {
+      // seek nearest enemy
+      let target=null, best=1e9;
+      for(const v of units){
+        if(v.side!==u.side && v.type!=='para'){
+          const dx=v.x-u.x, dz=v.z-u.z, d=Math.hypot(dx,dz);
+          if(d<best){best=d; target=v;}
         }
       }
-      if(u.hp<=0){ u.dead=true; u.el.remove(); }
+      if(target){
+        if(best>cfg.collideR*2){
+          const spd = (u.type==='tank'? cfg.tankSpeed: cfg.soldierSpeed);
+          const dirx=(target.x-u.x)/best, dirz=(target.z-u.z)/best;
+          u.x += dirx*spd*dt; u.z += dirz*spd*dt;
+        }
+        u.cd -= dt;
+        if(u.cd<=0 && best<cfg.range){
+          u.cd = (u.type==='tank'? cfg.tankCooldown: cfg.fireCooldown);
+          // “shoot”
+          target.hp -= (u.type==='tank'? cfg.dmg.shell: cfg.dmg.bullet);
+          AudioFX.beep(u.type==='tank'?160:320,.06);
+        }
+      }
     }
-    for(let i=units.length-1;i>=0;i--){ if(units[i].dead) units.splice(i,1); }
   }
-});
-document.querySelector('a-scene').setAttribute('army-loop','');
-
-function shoot(att, tgt){
-  AudioFX.beep(att.type==='tank'?160:320,.06);
-  tgt.hp = (tgt.hp||100) - (att.type==='tank'?cfg.dmg.shell:cfg.dmg.bullet);
-  tgt.el.setAttribute('data-hp', tgt.hp);
+  // cull dead
+  for(let i=units.length-1;i>=0;i--) if(units[i].hp<=0) units.splice(i,1);
 }
+
+/* ========= Rendering ========= */
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // draw board outline
+  const W=board.width, D=board.depth;
+  const corners = [
+    project(-W/2,  D/2),
+    project( W/2,  D/2),
+    project( W/2, -D/2),
+    project(-W/2, -D/2),
+  ];
+  ctx.save();
+  ctx.lineWidth = 2*devicePixelRatio;
+  ctx.strokeStyle = 'rgba(36,163,255,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(...corners[0]); for(let i=1;i<4;i++) ctx.lineTo(...corners[i]); ctx.closePath(); ctx.stroke();
+  // center line
+  const m1=project(0,-D/2), m2=project(0,D/2);
+  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(...m1); ctx.lineTo(...m2); ctx.stroke();
+  ctx.restore();
+
+  // draw units (back to front: sort by z & y)
+  const sorted = units.slice().sort((a,b)=> (a.y-b.y) || (b.z-a.z));
+  for(const u of sorted){
+    const size = (u.type==='tank'? 0.28 : 0.12);
+    const [sx,sy] = project(u.x,u.z);
+    // lift for y (height)
+    const lift = -u.y * board.scale*0.35;
+    const w = size*board.scale*0.35;
+    const h = (u.type==='tank'? w*0.6 : w*1.0);
+    const col = (u.side===SIDE.GREEN? '#34d399' : '#dcc18f');
+
+    // shadow
+    ctx.fillStyle='rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(sx, sy, w*0.6, h*0.33, 0, 0, Math.PI*2); ctx.fill();
+
+    // body
+    ctx.fillStyle=col;
+    ctx.fillRect(sx-w/2, sy-h/2+lift, w, h);
+
+    if(u.type==='tank'){
+      // cannon
+      ctx.fillStyle='#222';
+      ctx.fillRect(sx- w*0.08, sy - h*0.1 + lift, w*0.16, h*0.7);
+    }
+    if(u.type==='heli'){
+      // rotor
+      ctx.fillStyle='#eee';
+      ctx.fillRect(sx-w*0.8, sy - h*0.55 + lift, w*1.6, h*0.08);
+    }
+    if(u.type==='para'){
+      // parachute
+      ctx.fillStyle='#e6eef9';
+      ctx.fillRect(sx-w*1.4, sy - h*1.1 + lift, w*2.8, h*0.18);
+    }
+
+    // health bar
+    const hpw = w, hph = 6*devicePixelRatio;
+    const p = Math.max(0, Math.min(1, (u.hp || 0) / (u.type==='tank'?cfg.tankHP:cfg.soldierHP)));
+    ctx.fillStyle='rgba(0,0,0,0.45)';
+    ctx.fillRect(sx-hpw/2, sy - h*0.8 + lift, hpw, hph);
+    ctx.fillStyle = (u.side===SIDE.GREEN? '#84cc16' : '#f59e0b');
+    ctx.fillRect(sx-hpw/2, sy - h*0.8 + lift, hpw*p, hph);
+  }
+
+  // reticle (if not placed)
+  if(!placed && reticle.style.display!=='none'){
+    // (CSS ring already shows)
+  }
+}
+
+/* ========= Main loop ========= */
+let last=0;
+function loop(ts){
+  if(!last) last=ts; const dt=Math.min(0.05, (ts-last)/1000); last=ts;
+  if(placed) update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ========= Buttons ========= */
+document.getElementById('btnGreenSquad').onclick = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.GREEN); };
+document.getElementById('btnTanSquad').onclick   = ()=>{ AudioFX.ensure(); for(let i=0;i<5;i++) spawnSoldier(SIDE.TAN); };
+document.getElementById('btnGreenTank').onclick  = ()=>{ AudioFX.ensure(); spawnTank(SIDE.GREEN); };
+document.getElementById('btnTanTank').onclick    = ()=>{ AudioFX.ensure(); spawnTank(SIDE.TAN); };
+document.getElementById('btnDropGreen').onclick  = ()=>{ AudioFX.ensure(); dropPara(SIDE.GREEN); };
+document.getElementById('btnDropTan').onclick    = ()=>{ AudioFX.ensure(); dropPara(SIDE.TAN); };
+document.getElementById('btnReset').onclick      = ()=>{ units.length=0; };
+
+document.getElementById('btnPlace').onclick = ()=>{
+  if(reticle.style.display==='block'){
+    anchor.ax = pendingAnchor.x;
+    anchor.ay = pendingAnchor.y;
+    placed = true;
+    hideReticle();
+    document.getElementById('status').textContent = 'Battlefield placed. Spawn units!';
+    AudioFX.ensure();
+  }
+};
+
+/* ========= Start gate ========= */
+document.getElementById('btnStart').addEventListener('click', async ()=>{
+  document.getElementById('start').style.display='none';
+  await startCamera();
+  await askMotion();
+  resize();
+  // show reticle at current center until user taps a spot
+  const cx = canvas.width*0.5, cy = canvas.height*0.68;
+  pendingAnchor.x = cx; pendingAnchor.y = cy; showReticle(cx,cy);
+  requestAnimationFrame(loop);
+});
+
+/* First layout */
+resize();
+/* iOS rotate fix */
+addEventListener('orientationchange', ()=> setTimeout(resize, 60));
 </script>
 </body>
 </html>
