@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AR Army Men — WebXR (single file, no libs)</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #ui { position: fixed; inset: 0; pointer-events: none; }
+  #topbar { position: absolute; top: env(safe-area-inset-top); left: 0; right: 0; display:flex; gap:.5rem; padding:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto; }
+  #bottombar { position:absolute; bottom: calc(env(safe-area-inset-bottom) + .25rem); left:0; right:0; display:flex; gap:.5rem; padding:.5rem; justify-content:center; flex-wrap:wrap; pointer-events:auto; }
+  button { -webkit-tap-highlight-color: transparent; appearance:none; border:1px solid #2a2f39; background:#11161d; color:#cbd5e1; border-radius:12px; padding:.65rem .8rem; font-weight:600; font-size:.9rem; letter-spacing:.2px; box-shadow:0 1px 0 #000, inset 0 0 0 1px rgba(255,255,255,.04); }
+  button:active { transform: translateY(1px); }
+  #status { position:absolute; left:.5rem; bottom: calc(env(safe-area-inset-bottom) + .5rem); color:#9aa4b2; font-size:.8rem; text-shadow:0 1px 2px #000; max-width:50ch; }
+  #start { position: absolute; inset: 0; display:grid; place-items:center; background: radial-gradient(1200px 800px at 50% 0%, rgba(21,27,36,.9), rgba(0,0,0,.95)); pointer-events:auto; }
+  #start > div { text-align:center; max-width: 40rem; padding: 1.25rem; }
+  #start h1 { margin:.5rem 0 0.25rem; font-size:1.25rem; color:#e2e8f0; }
+  #start p { margin:0.25rem 0 .75rem; color:#a5b4c2; }
+  #canvas { display:block; width:100%; height:100%; }
+  .hb { position: absolute; width:56px; height:7px; border:1px solid rgba(255,255,255,.3); background: rgba(0,0,0,.35); border-radius: 4px; overflow:hidden; transform: translate(-50%, -100%); pointer-events:none; }
+  .hb .fill { height:100%; background: linear-gradient(90deg, #22c55e, #84cc16); width:100%; }
+  .hb.tan .fill { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .pings { position:fixed; inset:0; pointer-events:none; }
+  .ping { position:absolute; width:10px; height:10px; border-radius:999px; background:#22d3ee; opacity:.7; transform:translate(-50%,-50%); animation:pop 1s ease-out forwards; }
+  @keyframes pop { from { transform:translate(-50%,-50%) scale(.4); opacity:.9 } to { transform:translate(-50%,-50%) scale(2.2); opacity:0 } }
+  /* On-screen hint */
+  #hint { position:absolute; left:0; right:0; top: 25%; text-align:center; color:#cbd5e1; font-size:1rem; text-shadow: 0 2px 10px #000; pointer-events:none; display:none; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="ui">
+  <div id="topbar">
+    <button id="btnGreenSquad">+ Green Squad</button>
+    <button id="btnTanSquad">+ Tan Squad</button>
+    <button id="btnGreenTank">+ Green Tank</button>
+    <button id="btnTanTank">+ Tan Tank</button>
+    <button id="btnDropGreen">Heli Drop (Green)</button>
+    <button id="btnDropTan">Heli Drop (Tan)</button>
+  </div>
+  <div id="bottombar">
+    <button id="btnToggleOcclusion">Occlusion: Off</button>
+    <button id="btnReset">Reset</button>
+  </div>
+  <div id="status"></div>
+  <div id="hint">Move your phone to detect a surface…</div>
+  <div class="pings" id="pings"></div>
+</div>
+<div id="start">
+  <div>
+    <h1>AR Army Men</h1>
+    <p>Tap <b>Start AR</b>, move to detect a surface, then use the buttons to spawn green and tan units. Helicopters drop parachuting soldiers on command. Works best on iPhone 12+ (iOS 17+/Safari). No libraries.</p>
+    <button id="btnStart">Start AR</button>
+    <p style="font-size:.85rem; opacity:.8; margin-top:.75rem">If you see nothing: ensure HTTPS (GitHub Pages), enable Motion & Orientation access in Settings, and allow camera permissions.</p>
+  </div>
+</div>
+
+<script>
+(async () => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2', { xrCompatible: true, alpha:true, antialias:true, preserveDrawingBuffer:false });
+  if (!gl) { alert('WebGL2 not available'); return; }
+
+  // --- UI ---
+  const q = id => document.getElementById(id);
+  const statusEl = q('status');
+  const hintEl = q('hint');
+  const startOverlay = q('start');
+  const btnStart = q('btnStart');
+  const btnReset = q('btnReset');
+  const btnGreenSquad = q('btnGreenSquad');
+  const btnTanSquad = q('btnTanSquad');
+  const btnGreenTank = q('btnGreenTank');
+  const btnTanTank = q('btnTanTank');
+  const btnDropGreen = q('btnDropGreen');
+  const btnDropTan = q('btnDropTan');
+  const btnToggleOcc = q('btnToggleOcclusion');
+  const pings = q('pings');
+
+  // --- Audio: simple WebAudio synths (no files) ---
+  const Audio = {
+    ctx: null,
+    ensure() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+    burst(freq=220, dur=0.08) {
+      if (!this.ctx) return; const t=this.ctx.currentTime; const o=this.ctx.createOscillator(); const g=this.ctx.createGain();
+      o.type='square'; o.frequency.setValueAtTime(freq,t);
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.12,t+0.005); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o.connect(g).connect(this.ctx.destination); o.start(t); o.stop(t+dur);
+    },
+    boom() {
+      if (!this.ctx) return; const t=this.ctx.currentTime; const o=this.ctx.createOscillator(); const g=this.ctx.createGain();
+      o.type='sawtooth'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(60,t+.4);
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.2,t+.02); g.gain.exponentialRampToValueAtTime(0.0001,t+.5);
+      o.connect(g).connect(this.ctx.destination); o.start(t); o.stop(t+.6);
+    },
+    rotor(start=true) {
+      if (!this.ctx) return { stop:()=>{} };
+      const t=this.ctx.currentTime; const o=this.ctx.createOscillator(); const g=this.ctx.createGain();
+      o.type='triangle'; o.frequency.setValueAtTime(12,t); // slow thump
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.05,t+.2);
+      o.connect(g).connect(this.ctx.destination); o.start();
+      return { stop:()=>{ const T=this.ctx.currentTime; g.gain.exponentialRampToValueAtTime(0.0001, T+.2); o.stop(T+.21); } };
+    }
+  };
+
+  // --- Scene state ---
+  let xrSession = null, xrRefSpace = null, viewerSpace = null, hitTestSource = null, anchor = null;
+  let depthSupported = false, useOcclusion = false, depthInfo = null;
+  let viewProj = new Float32Array(16), model = new Float32Array(16), mvp = new Float32Array(16);
+  let planeReady = false; let fieldMatrix = identity(); // origin anchored to plane
+
+  // Gameplay entities
+  const SIDE = { GREEN: 0, TAN: 1 };
+  const units = []; // {type:'soldier'|'tank'|'heli'|'para', side, p:[x,y,z], v:[x,y,z], hp, state, extra}
+  const projectiles = []; // {p:[x,y,z], v:[x,y,z], life, side}
+
+  // Parameters
+  const cfg = {
+    soldierSpeed: 0.45,
+    tankSpeed: 0.25,
+    bulletSpeed: 6.0,
+    fireCooldown: 0.9,
+    tankCooldown: 1.6,
+    soldierHP: 100,
+    tankHP: 300,
+    bulletDamage: 25,
+    shellDamage: 70,
+    collideRadius: 0.18,
+    range: 6.0,
+    worldScale: 1.0, // meters
+    dropAltitude: 2.8, // meters above plane
+  };
+
+  // Simple RNG
+  const rand = (a=0,b=1)=>a+Math.random()*(b-a);
+
+  // Math helpers (tiny)
+  function identity(){ return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); }
+  function mul4x4(a,b,out){
+    const o = out||new Float32Array(16);
+    for (let i=0;i<4;i++){
+      const ai0=a[i*4+0], ai1=a[i*4+1], ai2=a[i*4+2], ai3=a[i*4+3];
+      o[i*4+0]=ai0*b[0]+ai1*b[4]+ai2*b[8]+ai3*b[12];
+      o[i*4+1]=ai0*b[1]+ai1*b[5]+ai2*b[9]+ai3*b[13];
+      o[i*4+2]=ai0*b[2]+ai1*b[6]+ai2*b[10]+ai3*b[14];
+      o[i*4+3]=ai0*b[3]+ai1*b[7]+ai2*b[11]+ai3*b[15];
+    }
+    return o;
+  }
+  function translate(m,x,y,z){ const r=identity(); r[12]=x; r[13]=y; r[14]=z; return mul4x4(m,r,new Float32Array(16)); }
+  function scale(m,x,y,z){ const r=identity(); r[0]=x; r[5]=y; r[10]=z; return mul4x4(m,r,new Float32Array(16)); }
+  function rotateY(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]); return mul4x4(m,r,new Float32Array(16)); }
+  function len2(v){ return Math.hypot(v[0],v[1],v[2]); }
+  function norm(v){ const L=len2(v); if(L>1e-6){ v[0]/=L; v[1]/=L; v[2]/=L; } return v; }
+  function sub(a,b){ return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+  function add(a,b){ return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+  function muls(v,s){ return [v[0]*s, v[1]*s, v[2]*s]; }
+
+  // --- Geometry (very simple) ---
+  const meshes = buildMeshes(gl);
+  const prog = buildProgram(gl);
+  gl.enable(gl.DEPTH_TEST);
+
+  let frameTime = 0, lastTime = 0;
+
+  // Health bars mapping
+  const hbPool = [];
+  function getHB(side){
+    let el = hbPool.find(x=>!x.used);
+    if (!el) { el=document.createElement('div'); el.className='hb'; el.innerHTML='<div class="fill"></div>'; q('ui').appendChild(el); hbPool.push(el); }
+    el.used=true; el.style.display='block'; el.classList.toggle('tan', side===SIDE.TAN); return el;
+  }
+  function resetHBs(){ hbPool.forEach(el=>{ el.used=false; el.style.display='none'; }); }
+
+  // --- Spawning ---
+  function spawnSoldier(side, pos){
+    units.push({ type:'soldier', side, p: pos.slice(), v:[0,0,0], hp: cfg.soldierHP, cd: rand(0,.3), state:'ground' });
+  }
+  function spawnTank(side, pos){
+    units.push({ type:'tank', side, p: pos.slice(), v:[0,0,0], hp: cfg.tankHP, cd: rand(0,.6), state:'ground' });
+  }
+  function spawnHeli(side){
+    const xz = randomFrontlinePos(side, 1.5, 2.8);
+    const p = [xz[0], cfg.dropAltitude, xz[1]];
+    const rotor = Audio.rotor();
+    units.push({ type:'heli', side, p, v:[(side===SIDE.GREEN?0.2:-0.2),0,0], hp: 120, cd:1.5, state:'hover', rotor });
+  }
+  function dropParatroop(side){
+    const heli = units.find(u=>u.type==='heli' && u.side===side);
+    if (!heli) { spawnHeli(side); return; }
+    const p = add(heli.p,[rand(-0.2,0.2), -0.05, rand(-0.2,0.2)]);
+    units.push({ type:'para', side, p, v:[0,-0.15,0], hp: cfg.soldierHP, cd:0, state:'air', chute:1 });
+  }
+
+  function randomFrontlinePos(side, min=0.6, max=2.2){
+    // Divide plane along +X (GREEN) / -X (TAN) in field space. Keep away from center line by min.
+    const x = (side===SIDE.GREEN? rand(min,max): -rand(min,max));
+    const z = rand(-1.2,1.2);
+    return [x,z];
+  }
+
+  function teamSpawn(side, n=5){ for(let i=0;i<n;i++){ const xz=randomFrontlinePos(side,0.6,2.0); spawnSoldier(side, [xz[0],0,xz[1]]); } }
+
+  // --- Buttons ---
+  btnGreenSquad.onclick = () => { Audio.ensure(); teamSpawn(SIDE.GREEN, 5); pingUI(btnGreenSquad); };
+  btnTanSquad.onclick = () => { Audio.ensure(); teamSpawn(SIDE.TAN, 5); pingUI(btnTanSquad); };
+  btnGreenTank.onclick = () => { Audio.ensure(); const xz=randomFrontlinePos(SIDE.GREEN,0.8,2.2); spawnTank(SIDE.GREEN,[xz[0],0,xz[1]]); pingUI(btnGreenTank); };
+  btnTanTank.onclick = () => { Audio.ensure(); const xz=randomFrontlinePos(SIDE.TAN,0.8,2.2); spawnTank(SIDE.TAN,[xz[0],0,xz[1]]); pingUI(btnTanTank); };
+  btnDropGreen.onclick = () => { Audio.ensure(); dropParatroop(SIDE.GREEN); pingUI(btnDropGreen); };
+  btnDropTan.onclick = () => { Audio.ensure(); dropParatroop(SIDE.TAN); pingUI(btnDropTan); };
+  btnToggleOcc.onclick = () => { useOcclusion = !useOcclusion; btnToggleOcc.textContent = 'Occlusion: ' + (useOcclusion?'On':'Off'); };
+  btnReset.onclick = () => { units.length=0; projectiles.length=0; resetHBs(); };
+
+  function pingUI(btn){ const r=btn.getBoundingClientRect(); const d=document.createElement('div'); d.className='ping'; d.style.left=(r.left+r.width/2)+'px'; d.style.top=(r.top+r.height/2)+'px'; pings.appendChild(d); setTimeout(()=>d.remove(),1000); }
+
+  // --- WebXR setup ---
+  btnStart.addEventListener('click', async () => {
+    Audio.ensure();
+    if (!navigator.xr) { alert('WebXR not available in this browser.'); return; }
+
+    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    if (!supported) { alert('immersive-ar not supported on this device/browser.'); return; }
+
+    try {
+      xrSession = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test', 'anchors'],
+        optionalFeatures: ['dom-overlay','depth-sensing'],
+        domOverlay: { root: document.body },
+        depthSensing: {
+          usagePreference: ['gpu-optimized', 'cpu-optimized'],
+          dataFormatPreference: ['luminance-alpha', 'float32']
+        }
+      });
+    } catch (e) {
+      alert('Failed to start AR session: '+e.message);
+      return;
+    }
+
+    startOverlay.style.display='none';
+    hintEl.style.display='block';
+
+    await gl.makeXRCompatible();
+    const xrLayer = new XRWebGLLayer(xrSession, gl, { alpha:true, antialias:true });
+    xrSession.updateRenderState({ baseLayer: xrLayer });
+
+    xrRefSpace = await xrSession.requestReferenceSpace('local');
+    viewerSpace = await xrSession.requestReferenceSpace('viewer');
+
+    const hitSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+    hitTestSource = hitSource;
+
+    // Depth support probe
+    depthSupported = !!xrSession.depthUsage && !!xrSession.depthDataFormat;
+
+    xrSession.requestAnimationFrame(onXRFrame);
+  });
+
+  function onXRFrame(t, frame){
+    const session = frame.session;
+    session.requestAnimationFrame(onXRFrame);
+    const pose = frame.getViewerPose(xrRefSpace);
+    if (!pose) return;
+
+    const layer = session.renderState.baseLayer;
+    canvas.width = layer.framebufferWidth; canvas.height = layer.framebufferHeight;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.viewport(0,0,canvas.width, canvas.height);
+    gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+    // Hit test to place field anchor
+    if (!planeReady && hitTestSource){
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (hits && hits.length){
+        const hit = hits[0];
+        const hitPose = hit.getPose(xrRefSpace);
+        if (!anchor){
+          try {
+            anchor = hit.createAnchor(hitPose);
+          } catch(e){ /* anchors may fail on some builds */ }
+        }
+        fieldMatrix = hitPose.transform.matrix; // origin of playfield
+        planeReady = true; hintEl.style.display='none';
+        statusEl.textContent = 'Surface locked. Spawn units!';
+      } else {
+        statusEl.textContent = 'Scanning for a surface…';
+      }
+    }
+
+    // Depth info (optional)
+    depthInfo = null;
+    if (useOcclusion && depthSupported) {
+      try { depthInfo = frame.getDepthInformation(pose.views[0]); } catch(e) { depthInfo=null; }
+    }
+
+    for (const view of pose.views){
+      const vp = layer.getViewport(view);
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+
+      // viewProjection = projection * view
+      const viewMat = view.transform.inverse.matrix; // 4x4
+      mul4x4(view.projectionMatrix, viewMat, viewProj);
+
+      // Update + draw
+      stepAndRender(frame, view, viewProj);
+    }
+  }
+
+  // --- Simulation + rendering ---
+  function stepAndRender(frame, view, viewProj){
+    const now = performance.now();
+    if (!lastTime) lastTime = now; frameTime = Math.min(0.032, (now - lastTime)/1000); lastTime = now;
+
+    // AI + physics
+    for (const u of units){
+      if (u.type==='heli'){
+        // slow hover drift
+        u.p[0]+=u.v[0]*frameTime; u.p[2]+=u.v[2]*frameTime;
+        u.cd -= frameTime; if (u.cd<=0){ u.cd=1.8; /* periodic rotor thump */ Audio.burst(110, .04); }
+      } else if (u.type==='para'){
+        // parachute fall
+        if (u.p[1] > 0.05){ u.p[1] = Math.max(0, u.p[1] + u.v[1]*frameTime*0.4); }
+        else { u.type='soldier'; u.state='ground'; }
+      } else {
+        // Ground AI
+        const target = findClosestEnemy(u);
+        if (target){
+          const d = sub(target.p, u.p); const L = len2(d);
+          if (L>cfg.collideRadius*2) {
+            const dir = norm(d);
+            const spd = (u.type==='tank')? cfg.tankSpeed : cfg.soldierSpeed;
+            u.p = add(u.p, muls(dir, spd*frameTime));
+          }
+          // Firing
+          u.cd -= frameTime;
+          if (u.cd<=0 && L < cfg.range){
+            u.cd = (u.type==='tank')? cfg.tankCooldown : cfg.fireCooldown;
+            const vel = muls(norm(d), cfg.bulletSpeed);
+            projectiles.push({ p:add(u.p,[0, (u.type==='tank'?0.12:0.08), 0]), v:vel, life:1.8, side:u.side, dmg:(u.type==='tank'?cfg.shellDamage:cfg.bulletDamage) });
+            Audio.burst(u.type==='tank'?160:320, 0.06);
+          }
+        }
+      }
+      // clamp HP, cleanup
+      if (u.hp<=0) u.dead=true;
+    }
+
+    // Projectiles
+    for (const b of projectiles){
+      b.life -= frameTime; if (b.life<=0) { b.dead=true; continue; }
+      b.p = add(b.p, muls(b.v, frameTime));
+      // hit test
+      for (const u of units){ if (u.side!==b.side && !u.dead){ const d = len2(sub(u.p,b.p)); if (d < cfg.collideRadius){ u.hp -= b.dmg; b.dead=true; Audio.boom(); break; } } }
+    }
+
+    // Remove dead
+    for (let i=units.length-1;i>=0;i--){ if (units[i].dead){ if (units[i].rotor){ units[i].rotor.stop(); } units.splice(i,1); } }
+    for (let i=projectiles.length-1;i>=0;i--){ if (projectiles[i].dead){ projectiles.splice(i,1); } }
+
+    // Render ground gizmo (front line) + entities
+    gl.useProgram(prog.prog);
+
+    // Uniforms common
+    gl.uniform1i(prog.uUseDepth, useOcclusion && !!depthInfo ? 1 : 0);
+    if (depthInfo){
+      // Bind depth texture if available (GPU optimized path)
+      try {
+        if (depthInfo.depthTexture){
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, depthInfo.depthTexture);
+          gl.uniform1i(prog.uDepthTex, 0);
+          gl.uniform2f(prog.uDepthSize, depthInfo.width, depthInfo.height);
+        }
+      } catch(e){ /* best effort */ }
+    }
+
+    // Draw a simple axis line to suggest halves
+    drawBox(mul4x4(fieldMatrix, scale(identity(), 0.02, 0.002, 3.2)), [0.2,0.8,1.0,0.7]);
+    drawBox(mul4x4(fieldMatrix, translate(identity(), 0, -0.001, 0)), [0.1,0.3,0.2,0.5]);
+
+    resetHBs();
+
+    // Draw units
+    for (const u of units){
+      const base = translate(fieldMatrix, u.p[0], u.p[1], u.p[2]);
+      if (u.type==='soldier'){
+        const m = scale(base, 0.06, 0.12, 0.06);
+        drawBox(m, (u.side===SIDE.GREEN? [0.2,0.9,0.2,1]: [0.85,0.73,0.45,1]));
+        placeHB(u);
+      } else if (u.type==='tank'){
+        drawBox(scale(base, 0.18, 0.09, 0.28), (u.side===SIDE.GREEN? [0.2,0.9,0.2,1]: [0.85,0.73,0.45,1]));
+        drawBox(mul4x4(base, mul4x4(translate(identity(),0,0.06,0.12), scale(identity(), 0.04, 0.04, 0.16))), [0.15,0.15,0.15,1]); // cannon
+        placeHB(u);
+      } else if (u.type==='heli'){
+        drawBox(scale(base, 0.12, 0.06, 0.28), (u.side===SIDE.GREEN? [0.2,0.9,0.2,1]: [0.85,0.73,0.45,1]));
+        drawBox(mul4x4(base, scale(identity(), 0.28, 0.01, 0.01)), [0.9,0.9,0.9,1]); // rotor bar
+        placeHB(u);
+      } else if (u.type==='para'){
+        drawBox(scale(base, 0.06, 0.12, 0.06), (u.side===SIDE.GREEN? [0.2,0.9,0.2,1]: [0.85,0.73,0.45,1]));
+        drawBox(mul4x4(base, translate(identity(),0,0.18,0)), [0.9,0.9,1,0.8]); // chute canopy
+        placeHB(u);
+      }
+    }
+
+    // Draw projectiles
+    for (const b of projectiles){
+      const m = scale(translate(fieldMatrix, b.p[0], b.p[1], b.p[2]), 0.02, 0.02, 0.02);
+      drawBox(m, [1,1,1,1]);
+    }
+  }
+
+  function placeHB(u){
+    // Project world pos to screen for a simple health bar overlay
+    const pos = [u.p[0], u.p[1]+ (u.type==='tank'?0.2:0.25), u.p[2], 1];
+    // world->clip: mvp = viewProj * fieldMatrix
+    const mvpLocal = mul4x4(viewProj, fieldMatrix, new Float32Array(16));
+    const out = mulVec4(mvpLocal, pos);
+    if (out[3] <= 0) return; // behind camera
+    const ndcX = out[0]/out[3], ndcY = out[1]/out[3];
+    const x = (ndcX * .5 + .5) * canvas.width;
+    const y = (1 - (ndcY * .5 + .5)) * canvas.height;
+    const hb = getHB(u.side); hb.style.left = x+'px'; hb.style.top = y+'px';
+    const pct = Math.max(0, Math.min(1, u.hp / (u.type==='tank'?cfg.tankHP:cfg.soldierHP)));
+    hb.firstElementChild.style.width = (pct*100)+'%';
+  }
+
+  function mulVec4(m, v){
+    const x=v[0], y=v[1], z=v[2], w=v[3];
+    return [
+      m[0]*x + m[4]*y + m[8]*z + m[12]*w,
+      m[1]*x + m[5]*y + m[9]*z + m[13]*w,
+      m[2]*x + m[6]*y + m[10]*z + m[14]*w,
+      m[3]*x + m[7]*y + m[11]*z + m[15]*w,
+    ];
+  }
+
+  function findClosestEnemy(u){
+    let best=null, bestD=1e9; for (const v of units){ if (v.side!==u.side && !v.dead && v.type!=='para'){ const d=len2(sub(v.p,u.p)); if (d<bestD){ bestD=d; best=v; } } }
+    return best;
+  }
+
+  // --- Minimal rendering (instanced boxes via attribute per-instance) ---
+  function buildMeshes(gl){
+    // Unit cube centered at origin
+    const p = [
+      // front
+      -1,-1, 1,  1,-1, 1,  1, 1, 1,  -1, 1, 1,
+      // back
+      1,-1,-1, -1,-1,-1, -1, 1,-1, 1, 1,-1, 1, 1,-1, -1, 1,-1,
+      // left
+      -1,-1,-1, -1,-1, 1, -1, 1, 1, -1, 1,-1,
+      // right
+      1,-1, 1, 1,-1,-1, 1, 1,-1, 1, 1, 1,
+      // top
+      -1, 1, 1, 1, 1, 1, 1, 1,-1, -1, 1,-1,
+      // bottom
+      -1,-1,-1, 1,-1,-1, 1,-1, 1, -1,-1, 1,
+    ];
+    const idx = [];
+    for (let i=0;i<6;i++){ const o=i*4; idx.push(o,o+1,o+2, o,o+2,o+3); }
+    const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(p), gl.STATIC_DRAW);
+    const ebo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false, 3*4, 0);
+    return { vao, count: idx.length };
+  }
+
+  function buildProgram(gl){
+    const vs = `#version 300 es\nprecision highp float;\nlayout(location=0) in vec3 aPos; uniform mat4 uMVP; void main(){ gl_Position = uMVP * vec4(aPos,1.0); }`;
+    const fs = `#version 300 es\nprecision highp float; out vec4 frag; uniform vec4 uColor; uniform int uUseDepth; uniform sampler2D uDepthTex; uniform vec2 uDepthSize; void main(){ frag = uColor; }`;
+    // Note: depth occlusion not wired due to cross-impl differences; button kept as future toggle.
+    const prog = link(gl, vs, fs);
+    return {
+      prog,
+      uMVP: gl.getUniformLocation(prog,'uMVP'),
+      uColor: gl.getUniformLocation(prog,'uColor'),
+      uUseDepth: gl.getUniformLocation(prog,'uUseDepth'),
+      uDepthTex: gl.getUniformLocation(prog,'uDepthTex'),
+      uDepthSize: gl.getUniformLocation(prog,'uDepthSize'),
+    };
+  }
+  function link(gl, vsSrc, fsSrc){
+    const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs); if(!gl.getShaderParameter(vs,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(vs));
+    const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs); if(!gl.getShaderParameter(fs,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(fs));
+    const p = gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
+
+  function drawBox(modelMat, color){
+    // mvp = viewProj * model
+    mul4x4(viewProj, modelMat, mvp);
+    gl.uniformMatrix4fv(prog.uMVP, false, mvp);
+    gl.uniform4fv(prog.uColor, color);
+    gl.bindVertexArray(meshes.vao);
+    gl.drawElements(gl.TRIANGLES, meshes.count, gl.UNSIGNED_SHORT, 0);
+  }
+})();
+</script>
+</body>
+</html>
